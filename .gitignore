@@ -11,3 +11,4 @@ downloads/
 build/
 dist/
 *.spec
+!main.spec
