@@ -32,10 +32,10 @@ jobs:
           pip install pyinstaller
 
       - name: Build with PyInstaller
-        run: pyinstaller --onefile --name myapp main.py
+        run: pyinstaller --onefile --name spis_downloader main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: myapp-${{ matrix.os }}
+          name: spis_downloader-${{ matrix.os }}
           path: dist/*
