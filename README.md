@@ -2,15 +2,8 @@
 
 ## Description
 
-Tool that automatically downloads all documents from the webpage of Slovakian Court File (Súdný spis).
-The user just selects the webpage of his/her file - e.g. https://obcan.justice.sk/sudny-spis/spisy/12345678/dokumenty
-and the tool automatically downloads all files to a folder.
-
-# Technical description
-
-Downloads documents from a 2FA-protected webpage of Slovakian Cour File (Súdný spis) https://obcan.justice.sk/sudny-spis/spisy/xxxxxxxx/dokumenty
-For the automated access to the webpage is used the Playwright.
-Authentication is performed once in a visible browser window; all subsequent runs use the saved session and operate headlessly.
+Tool that automatically downloads all documents from the webpage of a Slovakian Court File (Súdny spis).
+The user pastes the URL of their file's documents page (e.g. `https://obcan.justice.sk/sudny-spis/spisy/12345678/dokumenty`) and the tool downloads all files to a selected folder.
 
 ## Requirements
 
@@ -26,44 +19,59 @@ pip install -r requirements.txt
 playwright install chromium
 
 cp .env.example .env
-# Edit .env with your values
+# Edit .env — at minimum set LOGIN_URL
 ```
 
-## Configuration
+## Configuration (`.env`)
 
 | Variable | Required | Description |
 |---|---|---|
 | `LOGIN_URL` | yes | URL of the login page |
-| `DOCUMENTS_URL` | yes | URL of the paginated documents list |
-| `DOWNLOAD_DIR` | no | Download destination (default: `./downloads`) |
-| `LOGGED_IN_SELECTOR` | no | CSS selector present only when logged in; used to detect a valid session |
-| `LINK_PATTERN` | no | Regex matched against `<a href>` inside list items (default: `\.pdf$`) |
+| `DOCUMENTS_URL` | no | Pre-fills the URL field in the GUI |
+| `DOWNLOAD_DIR` | no | Pre-fills the download folder in the GUI (default: `./downloads`) |
+| `LOGGED_IN_SELECTOR` | no | CSS selector present only when logged in, used to detect a valid session |
 
 ## Usage
 
+### GUI (default)
+
 ```bash
-# First run: opens a browser window for login + 2FA, then downloads headlessly
 python main.py
+```
 
-# Force re-authentication (e.g. after session expires)
-python main.py --reauth
+A window opens with:
+- **Documents URL** — paste the `/dokumenty` URL of your court file
+- **Download folder** — choose where to save files (Browse button opens a folder dialog)
+- **Force re-authentication** — checked by default; clears the saved session and opens a fresh login browser
+- **Run download** — starts the process; two progress bars show collection and download progress
+- **Download finished** — dialog shown on completion
 
-# Debug mode: keep browser visible during the download phase
-python main.py --debug
+### CLI
+
+```bash
+python main.py --cli                  # use URLs from .env
+python main.py --cli --reauth         # force fresh login
+python main.py --cli --debug          # keep browser visible during download
 ```
 
 ## How it works
 
-1. **Authentication** — a real Chromium window opens at `LOGIN_URL`. After you log in and complete 2FA, the session (cookies + localStorage) is saved to `auth_state.json`.
-2. **Pagination** — a headless browser loads `DOCUMENTS_URL`, reads the `"Dokumenty N – M z TOTAL"` span to determine the total number of pages, then visits each page via `?page=N`.
+1. **Authentication** — a visible Chromium window opens at `LOGIN_URL`. The window stays open until the text "Súdny spis" appears on the page (confirming login + 2FA are complete). The session (cookies + localStorage) is then saved to `auth_state.json` and the window closes.
+
+2. **Pagination** — a headless browser loads the documents URL and reads the `"Dokumenty N – M z TOTAL"` span to determine the total number of pages. Each page is then fetched via `?page=N`.
+
 3. **Link collection** — on each page, `<ul><li><a>` elements are scraped for the document URL, filename (from `<h4>`), and date (from a `DD.MM.YYYY` span).
-4. **Download** — each document is fetched via `context.request.get()` using the live session cookies and written to `DOWNLOAD_DIR`. Already-downloaded files are skipped.
-5. **Post-processing** — ASICE files are extracted.
+
+4. **Download** — each document is fetched via `context.request.get()` using the live session cookies. The filename is taken from the `Content-Disposition` response header (with fallback to the scraped `<h4>` text). Already-downloaded files are skipped.
+
+5. **Post-processing** — `.asice` containers (ASiC-E digital signature format) are unpacked: `META-INF/` and `mimetype` entries are skipped and the enclosed document is extracted.
 
 ## File naming
 
 Downloaded files are named `YYYY-MM-DD_NN_<title>.<ext>`, where:
-- `YYYY-MM-DD` is the document date converted from `DD.MM.YYYY`
-- `NN` is a counter disambiguating multiple documents on the same date
-- `<title>` is the sanitized `<h4>` text
-- `<ext>` is detected from magic bytes after download
+- `YYYY-MM-DD` is the document date (converted from the `DD.MM.YYYY` span)
+- `NN` is a zero-padded counter disambiguating multiple documents on the same date
+- `<title>` is the filename from `Content-Disposition` (or the `<h4>` text as fallback)
+- Percent-encoded characters are decoded
+- Names longer than 245 characters are truncated, preserving the extension
+- Files with extension `.xdcf` get `.html` appended (`.xdcf.html`) for browser compatibility
