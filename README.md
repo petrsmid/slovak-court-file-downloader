@@ -1,6 +1,15 @@
-# SpisDownloader
+# Slovak Court File Downloader (Súdny spis)
 
-Downloads documents from a 2FA-protected webpage using Playwright.
+## Description
+
+Tool that automatically downloads all documents from the webpage of Slovakian Court File (Súdný spis).
+The user just selects the webpage of his/her file - e.g. https://obcan.justice.sk/sudny-spis/spisy/12345678/dokumenty
+and the tool automatically downloads all files to a folder.
+
+# Technical description
+
+Downloads documents from a 2FA-protected webpage of Slovakian Cour File (Súdný spis) https://obcan.justice.sk/sudny-spis/spisy/xxxxxxxx/dokumenty
+For the automated access to the webpage is used the Playwright.
 Authentication is performed once in a visible browser window; all subsequent runs use the saved session and operate headlessly.
 
 ## Requirements
@@ -49,7 +58,7 @@ python main.py --debug
 2. **Pagination** — a headless browser loads `DOCUMENTS_URL`, reads the `"Dokumenty N – M z TOTAL"` span to determine the total number of pages, then visits each page via `?page=N`.
 3. **Link collection** — on each page, `<ul><li><a>` elements are scraped for the document URL, filename (from `<h4>`), and date (from a `DD.MM.YYYY` span).
 4. **Download** — each document is fetched via `context.request.get()` using the live session cookies and written to `DOWNLOAD_DIR`. Already-downloaded files are skipped.
-5. **Post-processing** — magic bytes determine the true file type; files are renamed to `.pdf`, `.html`, `.xml`, or `.zip` accordingly. ZIP files are unpacked and the PDF(s) inside are extracted and renamed to match the ZIP stem.
+5. **Post-processing** — ASICE files are extracted.
 
 ## File naming
 
