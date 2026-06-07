@@ -66,7 +66,7 @@ class _Spinner(tk.Canvas):
 class App:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("SpisDownloader")
+        self.root.title("Spis Downloader")
         self.root.resizable(False, False)
         self._queue: queue.Queue = queue.Queue()
         self._build_ui()
@@ -81,7 +81,7 @@ class App:
         # URL input
         ttk.Label(frame, text="Documents URL:").grid(row=r, column=0, columnspan=2, sticky="w")
         r += 1
-        self._url_var = tk.StringVar(value=os.getenv("DOCUMENTS_URL", ""))
+        self._url_var = tk.StringVar(value=os.getenv("DOCUMENTS_URL", "https://obcan.justice.sk/sudny-spis/spisy/XXXXXXXX/dokumenty"))
         ttk.Entry(frame, textvariable=self._url_var, width=64).grid(
             row=r, column=0, columnspan=2, sticky="ew", pady=(2, 12)
         )
@@ -96,13 +96,6 @@ class App:
         )
         ttk.Button(frame, text="Browse…", command=self._browse).grid(
             row=r, column=1, sticky="w", padx=(8, 0), pady=(2, 12)
-        )
-        r += 1
-
-        # Re-auth checkbox
-        self._reauth_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(frame, text="Force re-authentication", variable=self._reauth_var).grid(
-            row=r, column=0, columnspan=2, sticky="w", pady=(0, 12)
         )
         r += 1
 
@@ -168,18 +161,17 @@ class App:
 
         threading.Thread(
             target=self._worker,
-            args=(url, folder, self._reauth_var.get()),
+            args=(url, folder),
             daemon=True,
         ).start()
         self._poll()
 
-    def _worker(self, documents_url: str, download_dir: str, reauth: bool) -> None:
+    def _worker(self, documents_url: str, download_dir: str) -> None:
         try:
             login_url = os.environ["LOGIN_URL"]
             logged_in_selector = os.getenv("LOGGED_IN_SELECTOR")
 
-            if reauth:
-                clear_auth()
+            clear_auth()
 
             if needs_auth():
                 self._queue.put((_MSG_STATUS, "Opening browser for authentication…"))
