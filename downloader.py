@@ -44,11 +44,6 @@ def parse_pagination(page: Page, span_pattern: str = r"Dokumenty (\d+)\s*[-–]\
     raise RuntimeError("Could not find pagination span on the page.")
 
 
-def _is_session_valid(page: Page, login_url: str) -> bool:
-    """Returns False if we were redirected to the login page."""
-    return login_url not in page.url
-
-
 def _filename_from_url(url: str) -> str:
     return Path(urlparse(url).path).name or "document"
 
@@ -189,7 +184,6 @@ def _collect_all_links(
 
 def download_documents(
     documents_url: str,
-    login_url: str,
     download_dir: str,
     headless: bool = True,
     collect_progress_cb: Callable[[int, int], None] | None = None,

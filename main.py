@@ -18,7 +18,6 @@ def _run_cli(reauth: bool, debug: bool) -> None:
     from auth import authenticate, needs_auth, clear_auth
     from downloader import download_documents
 
-    login_url = os.environ["LOGIN_URL"]
     documents_url = os.environ["DOCUMENTS_URL"]
     download_dir = os.getenv("DOWNLOAD_DIR", "./downloads")
     logged_in_selector = os.getenv("LOGGED_IN_SELECTOR")
@@ -27,12 +26,11 @@ def _run_cli(reauth: bool, debug: bool) -> None:
         clear_auth()
 
     if needs_auth():
-        authenticate(login_url, logged_in_selector)
+        authenticate(documents_url, logged_in_selector)
 
     try:
         downloaded = download_documents(
             documents_url=documents_url,
-            login_url=login_url,
             download_dir=download_dir,
             headless=not debug,
         )

@@ -19,14 +19,13 @@ pip install -r requirements.txt
 playwright install chromium
 
 cp .env.example .env
-# Edit .env — at minimum set LOGIN_URL
+# Edit .env — at minimum set DOCUMENTS_URL
 ```
 
 ## Configuration (`.env`)
 
 | Variable | Required | Description |
 |---|---|---|
-| `LOGIN_URL` | yes | URL of the login page |
 | `DOCUMENTS_URL` | no | Pre-fills the URL field in the GUI |
 | `DOWNLOAD_DIR` | no | Pre-fills the download folder in the GUI (default: `./downloads`) |
 | `LOGGED_IN_SELECTOR` | no | CSS selector present only when logged in, used to detect a valid session |
@@ -42,7 +41,6 @@ python main.py
 A window opens with:
 - **Documents URL** — paste the `/dokumenty` URL of your court file
 - **Download folder** — choose where to save files (Browse button opens a folder dialog)
-- **Force re-authentication** — checked by default; clears the saved session and opens a fresh login browser
 - **Run download** — starts the process; two progress bars show collection and download progress
 - **Download finished** — dialog shown on completion
 
@@ -56,7 +54,7 @@ python main.py --cli --debug          # keep browser visible during download
 
 ## How it works
 
-1. **Authentication** — a visible Chromium window opens at `LOGIN_URL`. The window stays open until the text "Súdny spis" appears on the page (confirming login + 2FA are complete). The session (cookies + localStorage) is then saved to `auth_state.json` and the window closes.
+1. **Authentication** — a visible Chromium window opens at `DOCUMENTS_URL`. The window stays open until the text "Súdny spis" appears on the page (confirming login + 2FA are complete). The session (cookies + localStorage) is then saved to `auth_state.json` and the window closes.
 
 2. **Pagination** — a headless browser loads the documents URL and reads the `"Dokumenty N – M z TOTAL"` span to determine the total number of pages. Each page is then fetched via `?page=N`.
 

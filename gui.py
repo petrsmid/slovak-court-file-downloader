@@ -168,19 +168,17 @@ class App:
 
     def _worker(self, documents_url: str, download_dir: str) -> None:
         try:
-            login_url = os.environ["LOGIN_URL"]
             logged_in_selector = os.getenv("LOGGED_IN_SELECTOR")
 
             clear_auth()
 
             if needs_auth():
                 self._queue.put((_MSG_STATUS, "Opening browser for authentication…"))
-                authenticate(login_url, logged_in_selector)
+                authenticate(documents_url, logged_in_selector)
 
             self._queue.put((_MSG_STATUS, "Navigating to documents page…"))
             download_documents(
                 documents_url=documents_url,
-                login_url=login_url,
                 download_dir=download_dir,
                 collect_progress_cb=lambda cur, tot: self._queue.put((_MSG_COLLECT, cur, tot)),
                 download_progress_cb=lambda cur, tot: self._queue.put((_MSG_DOWNLOAD, cur, tot)),
