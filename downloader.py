@@ -9,9 +9,35 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse, unquote
+
+import os
+import subprocess
+import sys
+
+# When frozen by PyInstaller, store/find browsers next to the executable.
+if getattr(sys, "frozen", False):
+    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
+
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 
 from auth import AUTH_STATE_FILE, clear_auth
+
+
+def ensure_chromium(status_cb: "Callable[[str], None] | None" = None) -> None:
+    """Download Chromium via the Playwright driver if not already present."""
+    from playwright._impl._driver import compute_driver_executable, get_driver_env
+    if status_cb:
+        status_cb("Downloading Chromium…")
+    driver = compute_driver_executable()
+    env = get_driver_env()
+    result = subprocess.run(
+        [str(driver), "install", "chromium"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Chromium installation failed:\n{result.stderr}")
 
 
 @dataclass

@@ -8,7 +8,7 @@ from tkinter import filedialog, messagebox, ttk
 from dotenv import load_dotenv
 
 from auth import authenticate, needs_auth, clear_auth
-from downloader import download_documents
+from downloader import download_documents, ensure_chromium
 
 load_dotenv()
 
@@ -169,6 +169,8 @@ class App:
     def _worker(self, documents_url: str, download_dir: str) -> None:
         try:
             logged_in_selector = os.getenv("LOGGED_IN_SELECTOR")
+
+            ensure_chromium(lambda msg: self._queue.put((_MSG_STATUS, msg)))
 
             clear_auth()
 
