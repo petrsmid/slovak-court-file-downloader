@@ -64,8 +64,6 @@ def _sanitize_filename(name: str) -> str:
 def _normalize_filename(name: str) -> str:
     name = unquote(name)
     name = _sanitize_filename(name)
-    if name.lower().endswith(".xdcf"):
-        name = name + ".html"
     if len(name) > 245:
         ext = Path(name).suffix
         name = Path(name).stem[:245 - len(ext)] + ext
@@ -84,7 +82,7 @@ def _filename_from_content_disposition(header: str) -> str:
     return ""
 
 
-def _extract_asice(path: Path) -> None:
+def _extract_asice(path: Path) -> list[Path]:
     with zipfile.ZipFile(path) as zf:
         entries = [
             name for name in zf.namelist()
@@ -92,13 +90,23 @@ def _extract_asice(path: Path) -> None:
         ]
         if not entries:
             print(f"  WARNING  {path.name}: no document found inside, keeping as-is")
-            return
+            return [path]
+        extracted = []
         for i, entry in enumerate(entries):
             suffix = f"_{i + 1}" if len(entries) > 1 else ""
             dest = path.with_name(path.stem + suffix + Path(entry).suffix)
             dest.write_bytes(zf.read(entry))
             print(f"  extracted  {entry} → {dest.name}")
+            extracted.append(dest)
     path.unlink()
+    return extracted
+
+
+def _rename_xdcf(path: Path) -> None:
+    if path.suffix.lower() == ".xdcf":
+        new_path = path.with_name(path.name + ".html")
+        path.rename(new_path)
+        print(f"  renamed  {path.name} → {new_path.name}")
 
 
 def postprocess_downloads(paths: list[Path]) -> None:
@@ -107,7 +115,10 @@ def postprocess_downloads(paths: list[Path]) -> None:
             continue
         if path.suffix.lower() == ".asice":
             print(f"  unzipping  {path.name}")
-            _extract_asice(path)
+            for extracted in _extract_asice(path):
+                _rename_xdcf(extracted)
+        else:
+            _rename_xdcf(path)
 
 
 def _collect_all_links(
@@ -200,7 +211,7 @@ def download_documents(
         print(f"Navigating to {documents_url} ...")
         page.goto(documents_url, wait_until="networkidle")
 
-        page.wait_for_timeout(15_000)
+        #page.wait_for_timeout(15_000)
 
         page.wait_for_selector("span:has-text('Dokumenty')")
         pagination = parse_pagination(page)
