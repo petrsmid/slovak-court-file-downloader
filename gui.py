@@ -1,3 +1,4 @@
+import math
 import os
 import queue
 import threading
@@ -16,6 +17,50 @@ _MSG_COLLECT = "collect"
 _MSG_DOWNLOAD = "download"
 _MSG_DONE = "done"
 _MSG_ERROR = "error"
+
+
+class _Spinner(tk.Canvas):
+    _N = 8
+    _SHADES = ["#d0d0d0", "#b8b8b8", "#a0a0a0", "#888888", "#707070", "#585858", "#404040", "#202020"]
+
+    def __init__(self, parent, size: int = 32, **kw):
+        bg = ttk.Style().lookup("TFrame", "background") or "#f0f0f0"
+        super().__init__(parent, width=size, height=size, bd=0, highlightthickness=0, bg=bg, **kw)
+        self._size = size
+        self._step = 0
+        self._job = None
+        self._draw()
+
+    def _draw(self) -> None:
+        self.delete("all")
+        cx = cy = self._size / 2
+        r_out = cx - 3
+        r_in = r_out * 0.42
+        w = max(2, int(self._size / 10))
+        for i in range(self._N):
+            shade = self._SHADES[(i - self._step) % self._N]
+            a = math.radians(90 - 360 / self._N * i)
+            self.create_line(
+                cx + r_in * math.cos(a), cy - r_in * math.sin(a),
+                cx + r_out * math.cos(a), cy - r_out * math.sin(a),
+                fill=shade, width=w, capstyle=tk.ROUND,
+            )
+
+    def start(self) -> None:
+        if self._job is None:
+            self._tick()
+
+    def stop(self) -> None:
+        if self._job is not None:
+            self.after_cancel(self._job)
+            self._job = None
+        self._step = 0
+        self._draw()
+
+    def _tick(self) -> None:
+        self._step = (self._step + 1) % self._N
+        self._draw()
+        self._job = self.after(80, self._tick)
 
 
 class App:
@@ -63,7 +108,14 @@ class App:
 
         # Run button
         self._run_btn = ttk.Button(frame, text="Run download", command=self._start)
-        self._run_btn.grid(row=r, column=0, columnspan=2, pady=(0, 16))
+        self._run_btn.grid(row=r, column=0, columnspan=2, pady=(0, 8))
+        r += 1
+
+        # Spinner (shown only while running)
+        self._spinner = _Spinner(frame, size=32)
+        self._spinner_row = r
+        self._spinner.grid(row=r, column=0, columnspan=2, pady=(0, 8))
+        self._spinner.grid_remove()
         r += 1
 
         # Collecting progress
@@ -111,6 +163,8 @@ class App:
         self._collect_lbl.config(text="")
         self._dl_lbl.config(text="")
         self._status_var.set("")
+        self._spinner.grid(row=self._spinner_row, column=0, columnspan=2, pady=(0, 8))
+        self._spinner.start()
 
         threading.Thread(
             target=self._worker,
@@ -164,11 +218,15 @@ class App:
                     self._collect_bar["value"] = 100
                     self._dl_bar["value"] = 100
                     self._status_var.set("")
+                    self._spinner.stop()
+                    self._spinner.grid_remove()
                     self._run_btn.config(state="normal")
                     messagebox.showinfo("Done", "Download finished.")
                     return
                 elif kind == _MSG_ERROR:
                     self._status_var.set("")
+                    self._spinner.stop()
+                    self._spinner.grid_remove()
                     self._run_btn.config(state="normal")
                     messagebox.showerror("Error", msg[1])
                     return
