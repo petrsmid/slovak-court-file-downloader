@@ -30,15 +30,11 @@ def authenticate(login_url: str, logged_in_selector: str | None = None) -> None:
         page = context.new_page()
         page.goto(login_url)
 
-        # Poll until the user is logged in (navigated away from login page)
+        # Wait until the post-login page contains "Súdny spis" — confirms full auth success
         page.wait_for_function(
-            """(loginUrl) => !window.location.href.includes(loginUrl)""",
-            arg=login_url,
+            """() => document.body && document.body.innerText.includes('Súdny spis')""",
             timeout=300_000,  # 5 minutes to complete login + 2FA
         )
-
-        # Give the page a moment to settle (load post-login redirects / tokens)
-        page.wait_for_load_state("networkidle", timeout=15_000)
 
         context.storage_state(path=AUTH_STATE_FILE)
         browser.close()

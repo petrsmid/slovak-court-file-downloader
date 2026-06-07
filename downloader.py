@@ -5,9 +5,10 @@ matching the configured URL pattern from the target page.
 import math
 import re
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 
 from auth import AUTH_STATE_FILE, clear_auth
@@ -60,31 +61,43 @@ def _sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "_", name).strip()
 
 
-def _detect_extension(data: bytes) -> str:
-    if data[:4] == b"%PDF":
-        return ".pdf"
-    if data[:2] == b"PK":
-        return ".zip"
-    # HTML: check first non-whitespace content
-    sniff = data[:512].lstrip()
-    if sniff[:14].upper() == b"<GeneralAgenda":
-        return ".xml"
-    if sniff[:9].upper() == b"<!DOCTYPE" or sniff[:5].upper() == b"<HTML" or sniff[:1].upper() == b"<":
-        return ".html"
-    return ".bin"
+def _normalize_filename(name: str) -> str:
+    name = unquote(name)
+    name = _sanitize_filename(name)
+    if name.lower().endswith(".xdcf"):
+        name = name + ".html"
+    if len(name) > 245:
+        ext = Path(name).suffix
+        name = Path(name).stem[:245 - len(ext)] + ext
+    return name
 
 
-def _extract_zip(path: Path) -> None:
+def _filename_from_content_disposition(header: str) -> str:
+    # Prefer filename*= (RFC 5987, percent-encoded UTF-8)
+    m = re.search(r"filename\*\s*=\s*UTF-8''([^;\s]+)", header, re.IGNORECASE)
+    if m:
+        return unquote(m.group(1))
+    # Fall back to filename=
+    m = re.search(r'filename\s*=\s*"?([^";\r\n]+)"?', header, re.IGNORECASE)
+    if m:
+        return m.group(1).strip().strip('"')
+    return ""
+
+
+def _extract_asice(path: Path) -> None:
     with zipfile.ZipFile(path) as zf:
-        pdfs = [name for name in zf.namelist() if name.lower().endswith(".pdf")]
-        if not pdfs:
-            print(f"  WARNING  {path.name}: ZIP contains no PDFs, keeping as-is")
+        entries = [
+            name for name in zf.namelist()
+            if name != "mimetype" and not name.startswith("META-INF/")
+        ]
+        if not entries:
+            print(f"  WARNING  {path.name}: no document found inside, keeping as-is")
             return
-        for i, pdf_name in enumerate(pdfs):
-            suffix = f"_{i + 1}" if len(pdfs) > 1 else ""
-            dest = path.with_name(path.stem + suffix + ".pdf")
-            dest.write_bytes(zf.read(pdf_name))
-            print(f"  extracted  {pdf_name} → {dest.name}")
+        for i, entry in enumerate(entries):
+            suffix = f"_{i + 1}" if len(entries) > 1 else ""
+            dest = path.with_name(path.stem + suffix + Path(entry).suffix)
+            dest.write_bytes(zf.read(entry))
+            print(f"  extracted  {entry} → {dest.name}")
     path.unlink()
 
 
@@ -92,31 +105,25 @@ def postprocess_downloads(paths: list[Path]) -> None:
     for path in paths:
         if not path.exists():
             continue
-        ext = _detect_extension(path.read_bytes())
-        if ext == ".zip":
+        if path.suffix.lower() == ".asice":
             print(f"  unzipping  {path.name}")
-            renamed = path.with_suffix(".zip")
-            if path != renamed:
-                path.rename(renamed)
-                path = renamed
-            _extract_zip(path)
-        elif path.suffix.lower() != ext:
-            new_path = path.with_suffix(ext)
-            path.rename(new_path)
-            print(f"  renamed  {path.name} → {new_path.name}")
+            _extract_asice(path)
 
 
 def _collect_all_links(
     page: Page,
     pagination: PaginationInfo,
     documents_url: str,
-) -> list[tuple[str, str]]:
-    """Navigate each page via ?page=N and return (download_url, filename) pairs from ul > li items."""
-    collected: list[tuple[str, str]] = []
+    progress_cb: Callable[[int, int], None] | None = None,
+) -> list[tuple[str, str, str]]:
+    """Navigate each page via ?page=N and return (download_url, date_prefix, fallback_name) tuples."""
+    collected: list[tuple[str, str, str]] = []
+    page_range = list(range(pagination.total_pages, 0, -1))
+    total_steps = len(page_range)
 
     last_date_str = ""
     date_i = 1
-    for page_num in range(pagination.total_pages, 30, -1):
+    for step, page_num in enumerate(page_range, 1):
         print(f"  Scanning page {page_num}/{pagination.total_pages} ...")
         page.goto(f"{documents_url}?page={page_num}", wait_until="networkidle")
         page.wait_for_selector("ul li")
@@ -156,14 +163,16 @@ def _collect_all_links(
             else:
                 date_i += 1
             date_prefix = date_str + "_" + str(date_i).zfill(2) + "_"
-            base = date_prefix + (_sanitize_filename(name) if name else _filename_from_url(download_url))
-            collected.append((download_url, base))
+            fallback = _sanitize_filename(name) if name else _filename_from_url(download_url)
+            collected.append((download_url, date_prefix, fallback))
 
         print(f"    {len(items)} link(s) found")
+        if progress_cb:
+            progress_cb(step, total_steps)
 
     # Deduplicate by URL while preserving order
     seen: set[str] = set()
-    unique = [(url, name) for url, name in collected if not (url in seen or seen.add(url))]
+    unique = [t for t in collected if not (t[0] in seen or seen.add(t[0]))]
     return unique
 
 
@@ -172,6 +181,8 @@ def download_documents(
     login_url: str,
     download_dir: str,
     headless: bool = True,
+    collect_progress_cb: Callable[[int, int], None] | None = None,
+    download_progress_cb: Callable[[int, int], None] | None = None,
 ) -> list[Path]:
     dest_dir = Path(download_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -191,13 +202,6 @@ def download_documents(
 
         page.wait_for_timeout(15_000)
 
-        if not _is_session_valid(page, login_url):
-            browser.close()
-            clear_auth()
-            raise RuntimeError(
-                "Session expired — auth state cleared. Re-run to authenticate again."
-            )
-
         page.wait_for_selector("span:has-text('Dokumenty')")
         pagination = parse_pagination(page)
         print(
@@ -205,26 +209,35 @@ def download_documents(
             f"{pagination.items_per_page} per page → {pagination.total_pages} page(s)"
         )
 
-        doc_links = _collect_all_links(page, pagination, documents_url)
+        doc_links = _collect_all_links(page, pagination, documents_url, collect_progress_cb)
         print(f"\nCollected {len(doc_links)} unique document link(s) across all pages")
 
-        for url, filename in doc_links:
-            dest = dest_dir / filename
-
-            if _already_downloaded(dest):
-                print(f"  skip  {filename} (already downloaded)")
-                continue
-
-            print(f"  ↓     {filename}")
+        total_links = len(doc_links)
+        for i, (url, date_prefix, fallback) in enumerate(doc_links, 1):
             try:
                 response = context.request.get(url)
                 if not response.ok:
                     print(f"  ERROR {url}: HTTP {response.status}")
                     continue
+
+                cd = response.headers.get("content-disposition", "")
+                cd_name = _normalize_filename(_filename_from_content_disposition(cd))
+                base = cd_name if cd_name else fallback
+                filename = date_prefix + base
+                dest = dest_dir / filename
+
+                if _already_downloaded(dest):
+                    print(f"  skip  {filename} (already downloaded)")
+                    continue
+
+                print(f"  ↓     {filename}")
                 dest.write_bytes(response.body())
                 downloaded.append(dest)
             except Exception as exc:
                 print(f"  ERROR downloading {url}: {exc}")
+            finally:
+                if download_progress_cb:
+                    download_progress_cb(i, total_links)
 
         browser.close()
 
