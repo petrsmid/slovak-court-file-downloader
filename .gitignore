@@ -6,3 +6,8 @@ auth_state.json
 downloads/
 .DS_Store
 .idea/
+
+# PyInstaller
+build/
+dist/
+*.spec
