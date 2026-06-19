@@ -14,9 +14,15 @@ import os
 import subprocess
 import sys
 
-# When frozen by PyInstaller, store/find browsers next to the executable.
+# When frozen by PyInstaller, store/find browsers in a persistent, writable
+# per-user directory. NOT "0": that resolves to the driver package inside the temp
+# _MEI extraction dir, which is wiped each run and is missing the lockfile path
+# Playwright expects (ENOENT on .local-browsers/__dirlock).
 if getattr(sys, "frozen", False):
-    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
+    _base = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "SpisDownloader"
+    _browsers_dir = _base / "playwright-browsers"
+    _browsers_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(_browsers_dir)
 
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 
@@ -202,10 +208,7 @@ def _collect_all_links(
         if progress_cb:
             progress_cb(step, total_steps)
 
-    # Deduplicate by URL while preserving order
-    seen: set[str] = set()
-    unique = [t for t in collected if not (t[0] in seen or seen.add(t[0]))]
-    return unique
+    return collected
 
 
 def download_documents(
